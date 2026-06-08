@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>R2U Kakao Map</title>
+
+  <style>
+    html, body {
+      margin:0;
+      padding:0;
+      height:100%;
+      overflow:hidden;
+    }
+    #map { width:100%; height:100vh; }
+
+    /* 🔵 러너 아이콘 */
+    .runner-wrapper {
+      position: absolute;
+      transform: translate(-50%, -50%);  /* 중심이 좌표에 딱 오도록 */
+      pointer-events:none;
+    }
+
+    .user-dir-marker-outer {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: rgba(33, 150, 243, 0.28);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      transition: transform 0.18s linear;
+      will-change: transform;
+    }
+
+    .user-dir-marker-core {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #1E88E5;
+      border: 3px solid #fff;
+      box-shadow: 0 0 5px rgba(0,0,0,0.4);
+      position: relative;
+    }
+
+    .user-dir-marker-arrow {
+      position: absolute;
+      top: -14px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 6px solid transparent;
+      border-right: 6px solid transparent;
+      border-bottom: 12px solid white;
+    }
+
+    /* 코스 위 방향 화살표 */
+    .route-arrow {
+      width: 0;
+      height: 0;
+      border-left: 4px solid transparent;
+      border-right: 4px solid transparent;
+      border-bottom: 8px solid #FFFFFF;
+      filter: drop-shadow(0 0 1px rgba(0,0,0,0.6));
+    }
+  </style>
+
+  <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=f3beaea643bdd2136019b366df1190cf&libraries=geometry"></script>
+</head>
+
+<body>
+  <div id="map"></div>
+
+  <script>
+    /* ========= 전역 ========= */
+    let map;
+
+    let routeCoords = [];
+    let routeLineBase = null;   // 흰색 두꺼운 베이스 (네비 모드)
+    let routeLineDone = null;   // 지나온 구간 (회색)
+    let routeLineRemain = null; // 남은 구간 (초록/파랑)
+
+    let startMarker = null;
+    let endMarker = null;
+
+    let runnerOverlay = null;
+    let runnerWrapperDiv = null;
+
+    let isNavigationMode = false;
+    let defaultMapLevel = 3;
+
+    let routeArrows = []; // 방향 화살표들
+
+    /* ========= 지도 초기화 ========= */
+    function initMap() {
+      const container = document.getElementById('map');
+      map = new kakao.maps.Map(container, {
+        center: new kakao.maps.LatLng(37.4507, 126.6530),
+        level: 3
+      });
+      defaultMapLevel = map.getLevel();
+      console.log("🗺 지도 초기화됨");
+    }
+    initMap();
+
+    /* ========= 방향 화살표 ========= */
+    function createRouteArrows(coords) {
+      // 기존 화살표 제거
+      if (routeArrows.length) {
+        routeArrows.forEach(a => a.setMap(null));
+        routeArrows = [];
+      }
+      if (!coords || coords.length < 2) return;
+
+      const maxArrows = 25;
+      const step = Math.max(1, Math.floor(coords.length / maxArrows));
+
+      for (let i = 0; i < coords.length - 1; i += step) {
+        const p1 = coords[i];
+        const p2 = coords[i + 1];
+
+        const dx = p2.getLng() - p1.getLng();
+        const dy = p2.getLat() - p1.getLat();
+        const angleRad = Math.atan2(dy, dx);
+        const angleDeg = angleRad * 180 / Math.PI;
+        const rotateDeg = angleDeg - 90; // 위쪽 기준 보정
+
+        const html =
+          `<div class="route-arrow" style="
+              transform: rotate(${rotateDeg}deg);
+              transform-origin: 50% 50%;
+            "></div>`;
+
+        const overlay = new kakao.maps.CustomOverlay({
+          position: p1,
+          content: html,
+          zIndex: 4
+        });
+        overlay.setMap(map);
+        routeArrows.push(overlay);
+      }
+    }
+
+    /* ========= 네비게이션 모드 on/off ========= */
+    window.setNavigationMode = function(isNav) {
+      isNavigationMode = !!isNav;
+
+      if (isNavigationMode) {
+        // 출발점쪽 확대
+        if (map && routeCoords.length > 0) {
+          const startPos = routeCoords[0];
+          map.setLevel(2);       // 확대
+          map.panTo(startPos);   // 출발점 기준
+        } else if (map) {
+          map.setLevel(2);
+        }
+
+        // 흰색 베이스 라인
+        if (routeCoords.length) {
+          if (!routeLineBase) {
+            routeLineBase = new kakao.maps.Polyline({
+            path: routeCoords,
+            strokeWeight: 10,
+            strokeColor: '#FFFFFF',
+            strokeOpacity: 0.9,
+            strokeStyle: 'solid',
+          });
+          routeLineBase.setMap(map);
+       }
+
+  // 남은 길: 색은 그대로(연두색), 네비 중엔 살짝 더 두껍게만
+        if (routeLineRemain) {
+          routeLineRemain.setOptions({
+            strokeWeight: 8,   // 🔍 네비 모드일 때만 조금 더 두껍게
+      // strokeColor 건드리지 않음!
+          });
+        }
+
+  createRouteArrows(routeCoords);
+}
+
+
+          // 방향 화살표 생성
+          createRouteArrows(routeCoords);
+        }
+       else {
+        // 네비 종료 → 초록 라인으로 복귀
+        if (routeLineRemain) {
+          routeLineRemain.setOptions({
+            strokeColor: '#00C853',
+            strokeWeight: 6,
+          });
+        }
+
+        if (map) {
+          map.setLevel(defaultMapLevel);
+        }
+
+        // 러너/경로/화살표 정리
+        hideRunnerOnRoute();
+      }
+    };
+
+    /* ========= 추천 경로 그리기 ========= */
+    window.showRecommendedRoute = function(data) {
+      if (!data || !Array.isArray(data.polyline)) {
+        console.log("❌ showRecommendedRoute: polyline 없음");
+        return;
+      }
+
+      // 새 좌표 셋팅
+      routeCoords = data.polyline.map(p => new kakao.maps.LatLng(p.lat, p.lng));
+
+      // 기존 라인/마커/화살표 제거
+      if (routeLineBase)  { routeLineBase.setMap(null);  routeLineBase = null; }
+      if (routeLineDone)  { routeLineDone.setMap(null);  routeLineDone = null; }
+      if (routeLineRemain){ routeLineRemain.setMap(null);routeLineRemain = null; }
+      if (startMarker)    { startMarker.setMap(null);    startMarker = null; }
+      if (endMarker)      { endMarker.setMap(null);      endMarker = null; }
+
+      if (routeArrows.length) {
+        routeArrows.forEach(a => a.setMap(null));
+        routeArrows = [];
+      }
+
+      // 추천만 받은 상태: 초록색 라인 한 개
+      routeLineRemain = new kakao.maps.Polyline({
+        path: routeCoords,
+        strokeWeight: 6,
+        strokeColor: '#00C853',
+        strokeOpacity: 0.96,
+        strokeStyle: 'solid',
+      });
+      routeLineRemain.setMap(map);
+
+      // 출발/도착 마커
+      startMarker = new kakao.maps.Marker({
+        map: map,
+        position: routeCoords[0],
+      });
+      endMarker = new kakao.maps.Marker({
+        map: map,
+        position: routeCoords[routeCoords.length - 1],
+      });
+
+      // ✅ 코스 전체가 보이도록 축소/이동
+      const bounds = new kakao.maps.LatLngBounds();
+      routeCoords.forEach(p => bounds.extend(p));
+      map.setBounds(bounds);
+    };
+
+    /* ========= 지나온 길 / 남은 길 업데이트 ========= */
+    window.updateRouteProgress = function(lat, lng) {
+      if (!routeCoords.length) return;
+
+      const cur = new kakao.maps.LatLng(lat, lng);
+      let idx = 0;
+      let minDist = Infinity;
+
+      for (let i = 0; i < routeCoords.length; i++) {
+        const d = kakao.maps.geometry.spherical.computeDistanceBetween(cur, routeCoords[i]);
+        if (d < minDist) {
+          minDist = d;
+          idx = i;
+        }
+      }
+
+      const donePath   = routeCoords.slice(0, idx + 1);
+      const remainPath = routeCoords.slice(idx);
+
+      if (routeLineDone)   routeLineDone.setMap(null);
+      if (routeLineRemain) routeLineRemain.setMap(null);
+
+      routeLineDone = new kakao.maps.Polyline({
+        path: donePath,
+        strokeWeight: 7,
+        strokeColor: '#555555',   // ✅ 지나온 길: 회색
+        strokeOpacity: 0.96,
+        strokeStyle: 'solid',
+      });
+      routeLineDone.setMap(map);
+
+      routeLineRemain = new kakao.maps.Polyline({
+        path: remainPath,
+        strokeWeight: isNavigationMode ? 8 : 6,
+        strokeColor: '#A5D6A7',   // ✅ 아직 안 간 길: 연두색 고정
+        strokeOpacity: 0.96,
+        strokeStyle: 'solid',
+      });
+      routeLineRemain.setMap(map);
+
+    };
+
+    /* ========= 지도 자동 따라가기 ========= */
+    window.followUser = function(lat, lng) {
+      const pos = new kakao.maps.LatLng(lat, lng);
+      map.panTo(pos);
+    };
+
+    /* ========= 러너 아이콘 업데이트 ========= */
+    window.updateRunnerOnRoute = function(lat, lng, heading, onRoute) {
+      if (!isNavigationMode) return;
+
+      const pos = new kakao.maps.LatLng(lat, lng);
+
+      const color = (onRoute === true || onRoute === "true")
+        ? "#1E88E5"
+        : "#E53935";
+
+      const h = Number(heading || 0);
+      const offsetDeg = 0;
+
+      if (!runnerOverlay) {
+        runnerWrapperDiv = document.createElement("div");
+        runnerWrapperDiv.className = "runner-wrapper";
+
+        const html = `
+          <div class="user-dir-marker-outer" id="runnerOuter">
+            <div class="user-dir-marker-core" id="runnerCore" style="background:${color};"></div>
+            <div class="user-dir-marker-arrow"></div>
+          </div>
+        `;
+        runnerWrapperDiv.innerHTML = html;
+
+        runnerOverlay = new kakao.maps.CustomOverlay({
+          position: pos,
+          content: runnerWrapperDiv,
+          zIndex: 5,
+        });
+        runnerOverlay.setMap(map);
+      } else {
+        runnerOverlay.setPosition(pos);
+      }
+
+      // 회전
+      const outer = runnerWrapperDiv.querySelector("#runnerOuter");
+      if (outer) {
+        outer.style.transform = `rotate(${h + offsetDeg}deg)`;
+      }
+
+      // 색상
+      const core = runnerWrapperDiv.querySelector("#runnerCore");
+      if (core) {
+        core.style.background = color;
+      }
+    };
+
+    /* ========= 러너/경로/화살표 정리 ========= */
+    window.hideRunnerOnRoute = function() {
+      if (runnerOverlay) {
+        runnerOverlay.setMap(null);
+        runnerOverlay = null;
+      }
+      runnerWrapperDiv = null;
+
+      if (routeArrows.length) {
+        routeArrows.forEach(a => a.setMap(null));
+        routeArrows = [];
+      }
+
+      if (routeLineBase) {
+        routeLineBase.setMap(null);
+        routeLineBase = null;
+      }
+      if (routeLineDone) {
+        routeLineDone.setMap(null);
+        routeLineDone = null;
+      }
+      if (routeLineRemain) {
+        routeLineRemain.setMap(null);
+        routeLineRemain = null;
+      }
+      if (startMarker) {
+        startMarker.setMap(null);
+        startMarker = null;
+      }
+      if (endMarker) {
+        endMarker.setMap(null);
+        endMarker = null;
+      }
+
+      routeCoords = [];
+    };
+  </script>
+</body>
+</html>

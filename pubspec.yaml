@@ -1,0 +1,74 @@
+name: running_app
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+
+  kakao_flutter_sdk_user: ^1.6.0
+
+  # --- UI & Icon ---
+  cupertino_icons: ^1.0.8
+
+  # --- WebView ---
+  webview_flutter: ^4.7.0
+
+  # --- Calendar ---
+  table_calendar: ^3.0.9
+
+  # --- Localization / 날짜 처리 ---
+  intl: ^0.18.0
+
+  # --- GPS / 위치 ---
+  geolocator: ^11.0.0
+
+  # --- 현재위치표시
+  geocoding: ^2.1.0 
+
+  # --- HTTP 통신 ---
+  http: ^1.2.1
+
+  # --- 로컬 스토리지 ---
+  shared_preferences: ^2.2.0
+
+  # --- 상태관리 ---
+  provider: ^6.1.1
+
+  # --- Polyline 경로 좌표 처리(선택) ---
+  flutter_polyline_points: ^2.0.0
+
+  # 헬스 커넥트 연동 표준 패키지
+  health: ^13.2.1
+
+  image_picker: ^1.0.4
+
+  flutter_compass: ^0.8.0
+
+  
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/
+
+  fonts:
+    - family: Pretendard
+      fonts:
+        - asset: assets/fonts/Pretendard-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Pretendard-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Pretendard-Bold.ttf
+          weight: 700
